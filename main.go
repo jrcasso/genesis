@@ -98,8 +98,8 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 	// before because we had no guarantee that a given node dependency had been initialized.
 	for _, s := range config.Steps {
 		for _, dependency := range s.DependsOn {
-			var childNode = findNodesByValues(graph, map[string]string{"name": s.Name})
-			var parentNode = findNodesByValues(graph, map[string]string{"name": dependency})
+			var childNode = gograph.FindNodesByValues(graph, map[string]string{"name": s.Name})
+			var parentNode = gograph.FindNodesByValues(graph, map[string]string{"name": dependency})
 			if childNode == nil {
 				panic(fmt.Sprintf("Node not found: '%+v'. Did you spell step names and dependencies correctly?", s.Name))
 			}
@@ -118,7 +118,7 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 	// outbound edges. Every DAG has one or more topological sorts. We attempt to sort the DAG here
 	// to panic if it is not possible.
 
-	var sortedNodes = topologicalSort(graph)
+	var sortedNodes = gograph.TopologicalSort(graph)
 	var sortedByName = []string{}
 	for _, node := range sortedNodes {
 		sortedByName = append(sortedByName, node.Values["name"])
@@ -127,65 +127,6 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 	fmt.Println(sortedByName)
 
 	return graph
-}
-
-func DeleteDirectedEdge(graph gograph.DirectedGraph, parent *gograph.DirectedNode, child *gograph.DirectedNode) {
-	for index, childNode := range parent.Children {
-		if childNode.ID == child.ID {
-			parent.Children = append(parent.Children[:index], parent.Children[index+1:]...)
-			break
-		}
-	}
-	for index, parentNode := range child.Parents {
-		if parentNode.ID == parent.ID {
-			child.Parents = append(child.Parents[:index], child.Parents[:index+1]...)
-			break
-		}
-	}
-}
-
-//  topologicalSort implements Khan's algorithm
-func topologicalSort(graph gograph.DirectedGraph) []*gograph.DirectedNode {
-	var sorted []*gograph.DirectedNode
-	var childlessNodes []*gograph.DirectedNode
-	for _, node := range graph.DirectedNodes {
-		if len(node.Children) == 0 {
-			childlessNodes = append(childlessNodes, node)
-		}
-	}
-
-	for len(childlessNodes) > 0 {
-		var nextNode = childlessNodes[0]
-		childlessNodes = childlessNodes[1:]
-		sorted = append(sorted, nextNode)
-		for _, parent := range nextNode.Parents {
-			// Remove edge from parent to this node
-			DeleteDirectedEdge(graph, parent, nextNode)
-			if len(parent.Children) == 0 {
-				childlessNodes = append(childlessNodes, parent)
-			}
-		}
-	}
-
-	return sorted
-}
-
-func findNodesByValues(graph gograph.DirectedGraph, values map[string]string) []*gograph.DirectedNode {
-	var isMatch bool
-	var results []*gograph.DirectedNode
-
-	for _, node := range graph.DirectedNodes {
-		isMatch = true
-		for key, value := range values {
-			if node.Values[key] != value {
-				isMatch = false
-			}
-		}
-		if isMatch {
-			results = append(results, node)
-		}
-	}
-	return results
 }
 
 func main() {
