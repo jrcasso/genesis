@@ -1,0 +1,4 @@
+FROM alpine
+ARG PERIOD=10
+ENV PERIOD ${PERIOD}
+CMD sleep ${PERIOD}

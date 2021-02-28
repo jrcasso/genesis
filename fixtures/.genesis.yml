@@ -1,16 +1,16 @@
 name: maiden-voyage
 steps:
   - name: NodeA
-    image: sverrirab/sleep
+    image: jrcasso/genesis:sleep
 
   - name: NodeD
     image: whocares
     depends_on: ["NodeC"]
 
   - name: NodeB
-    image: sverrirab/sleep
+    image: jrcasso/genesis:sleep
     depends_on: ["NodeA"]
 
   - name: NodeC
-    image: sverrirab/sleep
+    image: jrcasso/genesis:sleep
     depends_on: ["NodeA", "NodeB"]
