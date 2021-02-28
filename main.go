@@ -7,7 +7,10 @@ import (
 	"log"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"github.com/jrcasso/genesis/genesis"
 	"github.com/jrcasso/gograph"
 	"gopkg.in/yaml.v2"
@@ -68,10 +71,11 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 			Parents:  []*gograph.DirectedNode{},
 			Children: []*gograph.DirectedNode{},
 			Values: map[string]string{
-				"name":    s.Name,
-				"image":   s.Image,
-				"command": s.Command,
-				"state":   WAITING,
+				"name":      s.Name,
+				"image":     s.Image,
+				"container": "",
+				"command":   s.Command,
+				"state":     WAITING,
 			},
 			ID: gograph.CreateDirectedNodeID(),
 		}
@@ -89,7 +93,7 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 			Children: []*gograph.DirectedNode{},
 			Values: map[string]string{
 				"name":  "root",
-				"image": "git",
+				"image": "jrcasso/genesis:sleep",
 				"state": WAITING,
 			},
 			ID: gograph.CreateDirectedNodeID(),
@@ -130,25 +134,43 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 
 func main() {
 	// Iniitialize
+	ctx := context.Background()
+	cli, err := client.NewEnvClient()
+	if err != nil {
+		fmt.Println("Unable to create docker client")
+		panic(err)
+	}
+
 	var config = unmarshalConfigYaml(readFile("./fixtures/.genesis.yml"))
+
+	// TODO consolidate deep copy into TopologicalSort
+	// See "github.com/jinzhu/copier"
 	var graph = convertConfigToGraph(config)
-	var sortedNodes = gograph.TopologicalSort(graph)
+	var graphCopy = convertConfigToGraph(config)
+	var sortedWithEdges = []*gograph.DirectedNode{}
+
+	for _, edgelessNode := range gograph.TopologicalSort(graph) {
+		for _, node := range graphCopy.DirectedNodes {
+			if node.Values["name"] == edgelessNode.Values["name"] {
+				sortedWithEdges = append(sortedWithEdges, node)
+			}
+		}
+	}
 
 	var sortedByName = []string{}
-	for _, node := range sortedNodes {
+	for _, node := range sortedWithEdges {
 		sortedByName = append(sortedByName, node.Values["name"])
 	}
 	fmt.Printf("%+v\n", config)
 	fmt.Printf("%+v\n", graph)
-	fmt.Println(sortedNodes)
 	fmt.Println(sortedByName)
 
 	// TODO: Consolidate keepGoing and allNodesCompleted
 	var keepGoing = true
 	for keepGoing {
 		var allNodesCompleted = true
-		for _, node := range sortedNodes {
-			transition(node, node.Values["state"])
+		for _, node := range sortedWithEdges {
+			transition(ctx, *cli, node)
 			if node.Values["state"] == SUCCEEDED || node.Values["state"] == FAILED || node.Values["state"] == CANCELLED {
 				allNodesCompleted = allNodesCompleted && true
 				// Move on to the next node
@@ -170,31 +192,49 @@ func main() {
 
 }
 
-func transition(node *gograph.DirectedNode, state string) {
-	switch state {
+func transition(ctx context.Context, cli client.Client, node *gograph.DirectedNode) {
+	fmt.Printf("Step %+v has state %+v\n", node.Values["name"], node.Values["state"])
+	switch node.Values["state"] {
 	case WAITING:
 		var shouldCancel = false
 		var shouldDispatch = true
 		for _, parent := range node.Parents {
 			if parent.Values["state"] == FAILED {
 				shouldCancel = true
+				break
 			}
 			if parent.Values["state"] != SUCCEEDED {
 				shouldDispatch = false
+				break
 			}
 		}
 		if shouldCancel {
+			fmt.Printf("Cancelling %+v\n", node.Values["name"])
 			node.Values["state"] = CANCELLED
 		}
 		if shouldDispatch {
-			if dispatch(node) {
+			fmt.Printf("Dispatching %+v\n", node.Values["name"])
+			if dispatch(ctx, cli, node) {
 				node.Values["state"] = RUNNING
 			} else {
 				node.Values["state"] = FAILED
 			}
 		}
 	case RUNNING:
-		fmt.Println("two")
+		var container, err = cli.ContainerInspect(ctx, node.Values["container"])
+		if err != nil {
+			fmt.Printf("Unable to inspect docker container %+v\n", node.Values["container"])
+			panic(err)
+		}
+		fmt.Printf("Container has status %+v\n", container.State.Status)
+		if container.State.Status == "exited" {
+			if container.State.ExitCode == 0 {
+				node.Values["state"] = SUCCEEDED
+			} else {
+				node.Values["state"] = FAILED
+			}
+		}
+
 	case CANCELLED:
 	case SUCCEEDED:
 	case FAILED:
@@ -203,24 +243,50 @@ func transition(node *gograph.DirectedNode, state string) {
 	}
 }
 
-func dispatch(node *gograph.DirectedNode) bool {
-	var c chan string = make(chan string)
-	ctx := context.Background()
-
-	cli, err := client.NewEnvClient()
-	if err != nil {
-		fmt.Println("Unable to create docker client")
-		panic(err)
-	}
+func dispatch(ctx context.Context, cli client.Client, node *gograph.DirectedNode) bool {
+	// var c chan string = make(chan string)
 
 	// Update the below function to accept an argument for the node
 	// so we can correlate the running container with the step later
-	if genesis.CreateNewContainer(ctx, *cli, "genesis:sleep", c) {
-		var id = <-c
+	var didCreate, id = createNewContainer(ctx, cli, node)
+	if didCreate {
 		fmt.Println(id)
+		node.Values["container"] = id
 		return true
-	} else {
-		return false
+	}
+	return false
+}
+
+// createNewContainer Creates a new container
+func createNewContainer(ctx context.Context, cli client.Client, node *gograph.DirectedNode) (bool, string) {
+	hostBinding := nat.PortBinding{
+		HostIP:   "0.0.0.0",
+		HostPort: "8000",
+	}
+	containerPort, err := nat.NewPort("tcp", "80")
+	if err != nil {
+		panic("Unable to get the port")
 	}
 
+	portBinding := nat.PortMap{containerPort: []nat.PortBinding{hostBinding}}
+	cont, err := cli.ContainerCreate(
+		ctx,
+		&container.Config{
+			Image: node.Values["image"],
+		},
+		&container.HostConfig{
+			PortBindings: portBinding,
+		},
+		nil,
+		node.ID,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	err = cli.ContainerStart(ctx, cont.ID, types.ContainerStartOptions{})
+	if err != nil {
+		return false, cont.ID
+	}
+	return true, cont.ID
 }
