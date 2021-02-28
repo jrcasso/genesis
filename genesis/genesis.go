@@ -3,7 +3,6 @@ package genesis
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -41,7 +40,7 @@ type Step struct {
 }
 
 // CreateNewContainer Creates a new container
-func CreateNewContainer(ctx context.Context, cli client.Client, image string, c chan string, wg *sync.WaitGroup) {
+func CreateNewContainer(ctx context.Context, cli client.Client, image string, c chan string) bool {
 	hostBinding := nat.PortBinding{
 		HostIP:   "0.0.0.0",
 		HostPort: "8000",
@@ -64,9 +63,12 @@ func CreateNewContainer(ctx context.Context, cli client.Client, image string, c 
 		panic(err)
 	}
 
-	cli.ContainerStart(ctx, cont.ID, types.ContainerStartOptions{})
-	wg.Done()
+	err = cli.ContainerStart(ctx, cont.ID, types.ContainerStartOptions{})
 	c <- cont.ID
+	if err != nil {
+		return false
+	}
+	return true
 }
 
 // DeleteContainer adsa

@@ -5,12 +5,24 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"sync"
+	"time"
 
 	"github.com/docker/docker/client"
 	"github.com/jrcasso/genesis/genesis"
 	"github.com/jrcasso/gograph"
 	"gopkg.in/yaml.v2"
+)
+
+// These represent valid step states
+// We could use `iota`, but node values (and therefore state) are strings by default
+// so it would require lots of strconv.Itoa(state) cals
+const (
+	WAITING   = "WAITING"
+	RUNNING   = "RUNNING"
+	DISPATCH  = "DISPATCH"
+	CANCELLED = "CANCELLED"
+	SUCCEEDED = "SUCCEEDED"
+	FAILED    = "FAILED"
 )
 
 func validateConfiguration(config []byte) bool {
@@ -59,7 +71,7 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 				"name":    s.Name,
 				"image":   s.Image,
 				"command": s.Command,
-				"state":   "pending",
+				"state":   WAITING,
 			},
 			ID: gograph.CreateDirectedNodeID(),
 		}
@@ -77,8 +89,8 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 			Children: []*gograph.DirectedNode{},
 			Values: map[string]string{
 				"name":  "root",
-				"image": "sverrirab/sleep",
-				"state": "pending",
+				"image": "git",
+				"state": WAITING,
 			},
 			ID: gograph.CreateDirectedNodeID(),
 		}
@@ -113,19 +125,6 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 		}
 	}
 
-	// In graph theory, a topological sort or topological ordering of a directed acyclic graph (DAG)
-	// is a linear ordering of its nodes in which each node comes before all nodes to which it has
-	// outbound edges. Every DAG has one or more topological sorts. We attempt to sort the DAG here
-	// to panic if it is not possible.
-
-	var sortedNodes = gograph.TopologicalSort(graph)
-	var sortedByName = []string{}
-	for _, node := range sortedNodes {
-		sortedByName = append(sortedByName, node.Values["name"])
-	}
-	fmt.Println(sortedNodes)
-	fmt.Println(sortedByName)
-
 	return graph
 }
 
@@ -133,18 +132,79 @@ func main() {
 	// Iniitialize
 	var config = unmarshalConfigYaml(readFile("./fixtures/.genesis.yml"))
 	var graph = convertConfigToGraph(config)
+	var sortedNodes = gograph.TopologicalSort(graph)
 
+	var sortedByName = []string{}
+	for _, node := range sortedNodes {
+		sortedByName = append(sortedByName, node.Values["name"])
+	}
 	fmt.Printf("%+v\n", config)
+	fmt.Printf("%+v\n", graph)
+	fmt.Println(sortedNodes)
+	fmt.Println(sortedByName)
+
+	// TODO: Consolidate keepGoing and allNodesCompleted
+	var keepGoing = true
+	for keepGoing {
+		var allNodesCompleted = true
+		for _, node := range sortedNodes {
+			transition(node, node.Values["state"])
+			if node.Values["state"] == SUCCEEDED || node.Values["state"] == FAILED || node.Values["state"] == CANCELLED {
+				allNodesCompleted = allNodesCompleted && true
+				// Move on to the next node
+				continue
+			} else {
+				allNodesCompleted = allNodesCompleted && false
+			}
+		}
+		time.Sleep(2 * time.Second)
+		if allNodesCompleted {
+			keepGoing = false
+		} else {
+			keepGoing = true
+		}
+	}
 	// // The daemon process is the root node
 	// graph, rootNode = gograph.CreateDirectedNode(graph, map[string]string{"foo": "bar"}, []*gograph.DirectedNode{}, []*gograph.DirectedNode{})
 	// ptrNode = rootNode
 
-	fmt.Printf("%+v\n", graph)
 }
 
-func dispatchContainers() {
+func transition(node *gograph.DirectedNode, state string) {
+	switch state {
+	case WAITING:
+		var shouldCancel = false
+		var shouldDispatch = true
+		for _, parent := range node.Parents {
+			if parent.Values["state"] == FAILED {
+				shouldCancel = true
+			}
+			if parent.Values["state"] != SUCCEEDED {
+				shouldDispatch = false
+			}
+		}
+		if shouldCancel {
+			node.Values["state"] = CANCELLED
+		}
+		if shouldDispatch {
+			if dispatch(node) {
+				node.Values["state"] = RUNNING
+			} else {
+				node.Values["state"] = FAILED
+			}
+		}
+	case RUNNING:
+		fmt.Println("two")
+	case CANCELLED:
+	case SUCCEEDED:
+	case FAILED:
+	default:
+		panic("Invalid state provided!")
+	}
+}
+
+func dispatch(node *gograph.DirectedNode) bool {
 	var c chan string = make(chan string)
-	var wg sync.WaitGroup
 	ctx := context.Background()
 
 	cli, err := client.NewEnvClient()
@@ -153,15 +213,14 @@ func dispatchContainers() {
 		panic(err)
 	}
 
-	for i := 0; i < 1; i++ {
-		wg.Add(1)
-		go genesis.CreateNewContainer(ctx, *cli, "sverrirab/sleep", c, &wg)
+	// Update the below function to accept an argument for the node
+	// so we can correlate the running container with the step later
+	if genesis.CreateNewContainer(ctx, *cli, "genesis:sleep", c) {
+		var id = <-c
+		fmt.Println(id)
+		return true
+	} else {
+		return false
 	}
 
-	var id = <-c
-	fmt.Println("Waiting for containers to finish")
-	wg.Wait()
-	fmt.Println("Stopping containers")
-	fmt.Println(id)
-	genesis.DeleteContainer(ctx, *cli, id)
 }
