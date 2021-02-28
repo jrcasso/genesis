@@ -169,6 +169,7 @@ func main() {
 	var keepGoing = true
 	for keepGoing {
 		var allNodesCompleted = true
+		fmt.Printf("================================================\n")
 		for _, node := range sortedWithEdges {
 			transition(ctx, *cli, node)
 			if node.Values["state"] == SUCCEEDED || node.Values["state"] == FAILED || node.Values["state"] == CANCELLED {
@@ -226,7 +227,6 @@ func transition(ctx context.Context, cli client.Client, node *gograph.DirectedNo
 			fmt.Printf("Unable to inspect docker container %+v\n", node.Values["container"])
 			panic(err)
 		}
-		fmt.Printf("Container has status %+v\n", container.State.Status)
 		if container.State.Status == "exited" {
 			if container.State.ExitCode == 0 {
 				node.Values["state"] = SUCCEEDED

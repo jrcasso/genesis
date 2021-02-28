@@ -4,7 +4,11 @@ steps:
     image: jrcasso/genesis:sleep
 
   - name: NodeD
-    image: whocares
+    image: jrcasso/genesis:sleep
+    depends_on: ["NodeC"]
+
+  - name: NodeE
+    image: jrcasso/genesis:sleep
     depends_on: ["NodeC"]
 
   - name: NodeB
