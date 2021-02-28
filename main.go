@@ -167,11 +167,13 @@ func main() {
 
 	// TODO: Consolidate keepGoing and allNodesCompleted
 	var keepGoing = true
+	fmt.Printf("BEGIN\n")
 	for keepGoing {
 		var allNodesCompleted = true
 		fmt.Printf("================================================\n")
 		for _, node := range sortedWithEdges {
 			transition(ctx, *cli, node)
+			fmt.Printf("Step %+v has state %+v\n", node.Values["name"], node.Values["state"])
 			if node.Values["state"] == SUCCEEDED || node.Values["state"] == FAILED || node.Values["state"] == CANCELLED {
 				allNodesCompleted = allNodesCompleted && true
 				// Move on to the next node
@@ -187,14 +189,10 @@ func main() {
 			keepGoing = true
 		}
 	}
-	// // The daemon process is the root node
-	// graph, rootNode = gograph.CreateDirectedNode(graph, map[string]string{"foo": "bar"}, []*gograph.DirectedNode{}, []*gograph.DirectedNode{})
-	// ptrNode = rootNode
-
+	fmt.Printf("END\n")
 }
 
 func transition(ctx context.Context, cli client.Client, node *gograph.DirectedNode) {
-	fmt.Printf("Step %+v has state %+v\n", node.Values["name"], node.Values["state"])
 	switch node.Values["state"] {
 	case WAITING:
 		var shouldCancel = false
@@ -250,7 +248,7 @@ func dispatch(ctx context.Context, cli client.Client, node *gograph.DirectedNode
 	// so we can correlate the running container with the step later
 	var didCreate, id = createNewContainer(ctx, cli, node)
 	if didCreate {
-		fmt.Println(id)
+		fmt.Printf("Dispatched %+v step container with ID %+v\n", node.Values["name"], id[:12])
 		node.Values["container"] = id
 		return true
 	}
