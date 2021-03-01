@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/jrcasso/genesis/genesis"
@@ -183,11 +186,7 @@ func main() {
 			}
 		}
 		time.Sleep(2 * time.Second)
-		if allNodesCompleted {
-			keepGoing = false
-		} else {
-			keepGoing = true
-		}
+		keepGoing = !allNodesCompleted
 	}
 	fmt.Printf("END\n")
 }
@@ -232,7 +231,6 @@ func transition(ctx context.Context, cli client.Client, node *gograph.DirectedNo
 				node.Values["state"] = FAILED
 			}
 		}
-
 	case CANCELLED:
 	case SUCCEEDED:
 	case FAILED:
@@ -257,6 +255,13 @@ func dispatch(ctx context.Context, cli client.Client, node *gograph.DirectedNode
 
 // createNewContainer Creates a new container
 func createNewContainer(ctx context.Context, cli client.Client, node *gograph.DirectedNode) (bool, string) {
+	var cmd = strings.Fields(node.Values["command"])
+	var config *container.Config
+	if len(cmd) != 0 {
+		config = &container.Config{Image: node.Values["image"], Cmd: cmd}
+	} else {
+		config = &container.Config{Image: node.Values["image"]}
+	}
 	hostBinding := nat.PortBinding{
 		HostIP:   "0.0.0.0",
 		HostPort: "8000",
@@ -267,13 +272,24 @@ func createNewContainer(ctx context.Context, cli client.Client, node *gograph.Di
 	}
 
 	portBinding := nat.PortMap{containerPort: []nat.PortBinding{hostBinding}}
+	path, err := os.Getwd()
+	if err != nil {
+		log.Println(err)
+	}
+
 	cont, err := cli.ContainerCreate(
 		ctx,
-		&container.Config{
-			Image: node.Values["image"],
-		},
+		config,
 		&container.HostConfig{
 			PortBindings: portBinding,
+			Mounts: []mount.Mount{
+				{
+					Type:     mount.TypeBind,
+					Source:   path,
+					Target:   "/genesis",
+					ReadOnly: true,
+				},
+			},
 		},
 		nil,
 		node.ID,
@@ -284,6 +300,7 @@ func createNewContainer(ctx context.Context, cli client.Client, node *gograph.Di
 
 	err = cli.ContainerStart(ctx, cont.ID, types.ContainerStartOptions{})
 	if err != nil {
+		fmt.Println(err)
 		return false, cont.ID
 	}
 	return true, cont.ID
