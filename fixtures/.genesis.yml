@@ -16,6 +16,7 @@ steps:
   - name: NodeB
     image: jrcasso/genesis:sleep
     depends_on: ["NodeA"]
+    command: /bin/touch /genesis/foobar
 
   - name: NodeC
     image: jrcasso/genesis:sleep

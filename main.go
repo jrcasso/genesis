@@ -30,10 +30,6 @@ const (
 	FAILED    = "FAILED"
 )
 
-func validateConfiguration(config []byte) bool {
-	return true
-}
-
 func readFile(path string) []byte {
 	// Load YAML file
 	configBytes, err := ioutil.ReadFile(path)
@@ -261,10 +257,9 @@ func dispatch(ctx context.Context, cli client.Client, conf genesis.Pipeline, nod
 			PortBindings: portBinding,
 			Mounts: []mount.Mount{
 				{
-					Type:     mount.TypeBind,
-					Source:   path,
-					Target:   "/genesis",
-					ReadOnly: true,
+					Type:   mount.TypeBind,
+					Source: path,
+					Target: "/genesis",
 				},
 			},
 		},
