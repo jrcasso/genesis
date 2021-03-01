@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -38,9 +37,7 @@ func validateConfiguration(config []byte) bool {
 func readFile(path string) []byte {
 	// Load YAML file
 	configBytes, err := ioutil.ReadFile(path)
-	if err != nil {
-		log.Fatalf("error: %v", err)
-	}
+	check(err)
 	fmt.Print(string(configBytes))
 	return configBytes
 }
@@ -54,9 +51,7 @@ func check(e error) {
 func unmarshalConfigYaml(config []byte) genesis.Pipeline {
 	t := genesis.Pipeline{}
 	err := yaml.Unmarshal(config, &t)
-	if err != nil {
-		log.Fatalf("error: %v", err)
-	}
+	check(err)
 	return t
 }
 
@@ -198,9 +193,8 @@ func transition(ctx context.Context, cli client.Client, config genesis.Pipeline,
 		var shouldCancel = false
 		var shouldDispatch = true
 		for _, parent := range node.Parents {
-			if parent.Values["state"] == FAILED {
+			if parent.Values["state"] == FAILED || parent.Values["state"] == CANCELLED {
 				shouldCancel = true
-				break
 			}
 			if parent.Values["state"] != SUCCEEDED {
 				shouldDispatch = false
@@ -221,10 +215,8 @@ func transition(ctx context.Context, cli client.Client, config genesis.Pipeline,
 		}
 	case RUNNING:
 		var container, err = cli.ContainerInspect(ctx, node.Values["container"])
-		if err != nil {
-			fmt.Printf("Unable to inspect docker container %+v\n", node.Values["container"])
-			panic(err)
-		}
+		check(err)
+
 		if container.State.Status == "exited" {
 			if container.State.ExitCode == 0 {
 				node.Values["state"] = SUCCEEDED
@@ -240,22 +232,8 @@ func transition(ctx context.Context, cli client.Client, config genesis.Pipeline,
 	}
 }
 
-func dispatch(ctx context.Context, cli client.Client, config genesis.Pipeline, node *gograph.DirectedNode) bool {
-	// var c chan string = make(chan string)
-
-	// Update the below function to accept an argument for the node
-	// so we can correlate the running container with the step later
-	var didCreate, id = createNewContainer(ctx, cli, config, node)
-	if didCreate {
-		fmt.Printf("Dispatched %+v step container with ID %+v\n", node.Values["name"], id[:12])
-		node.Values["container"] = id
-		return true
-	}
-	return false
-}
-
-// createNewContainer Creates a new container
-func createNewContainer(ctx context.Context, cli client.Client, conf genesis.Pipeline, node *gograph.DirectedNode) (bool, string) {
+// dispatch Creates a new container
+func dispatch(ctx context.Context, cli client.Client, conf genesis.Pipeline, node *gograph.DirectedNode) bool {
 	var cmd = strings.Fields(node.Values["command"])
 	var config *container.Config
 
@@ -264,21 +242,14 @@ func createNewContainer(ctx context.Context, cli client.Client, conf genesis.Pip
 	} else {
 		config = &container.Config{Image: node.Values["image"]}
 	}
-	hostBinding := nat.PortBinding{
-		HostIP:   "0.0.0.0",
-		HostPort: "8000",
-	}
+	hostBinding := nat.PortBinding{HostIP: "0.0.0.0", HostPort: "8000"}
 	containerPort, err := nat.NewPort("tcp", "80")
-	if err != nil {
-		panic("Unable to get the port")
-	}
+	check(err)
+	path, err := os.Getwd()
+	check(err)
 
 	portBinding := nat.PortMap{containerPort: []nat.PortBinding{hostBinding}}
 
-	path, err := os.Getwd()
-	if err != nil {
-		log.Println(err)
-	}
 	if conf.Mount != "" {
 		path = conf.Mount
 	}
@@ -300,14 +271,15 @@ func createNewContainer(ctx context.Context, cli client.Client, conf genesis.Pip
 		nil,
 		node.ID,
 	)
-	if err != nil {
-		panic(err)
-	}
+	check(err)
 
 	err = cli.ContainerStart(ctx, cont.ID, types.ContainerStartOptions{})
 	if err != nil {
 		fmt.Println(err)
-		return false, cont.ID
+		return false
 	}
-	return true, cont.ID
+
+	fmt.Printf("Dispatched %+v step container with ID %+v\n", node.Values["name"], cont.ID[:12])
+	node.Values["container"] = cont.ID
+	return true
 }
