@@ -1,10 +1,12 @@
 name: maiden-voyage
+mount: /c/Users/Intrepid/code/genesis
 steps:
   - name: NodeA
     image: jrcasso/genesis:sleep
 
   - name: NodeD
     image: jrcasso/genesis:sleep
+    command: sleep 30
     depends_on: ["NodeC"]
 
   - name: NodeE
@@ -18,3 +20,7 @@ steps:
   - name: NodeC
     image: jrcasso/genesis:sleep
     depends_on: ["NodeA", "NodeB"]
+
+  - name: Last1
+    image: jrcasso/genesis:sleep
+    depends_on: ["NodeD", "NodeE"]

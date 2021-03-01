@@ -175,7 +175,7 @@ func main() {
 		var allNodesCompleted = true
 		fmt.Printf("================================================\n")
 		for _, node := range sortedWithEdges {
-			transition(ctx, *cli, node)
+			transition(ctx, *cli, config, node)
 			fmt.Printf("Step %+v has state %+v\n", node.Values["name"], node.Values["state"])
 			if node.Values["state"] == SUCCEEDED || node.Values["state"] == FAILED || node.Values["state"] == CANCELLED {
 				allNodesCompleted = allNodesCompleted && true
@@ -191,7 +191,8 @@ func main() {
 	fmt.Printf("END\n")
 }
 
-func transition(ctx context.Context, cli client.Client, node *gograph.DirectedNode) {
+// TODO transition is starting to get overloaded
+func transition(ctx context.Context, cli client.Client, config genesis.Pipeline, node *gograph.DirectedNode) {
 	switch node.Values["state"] {
 	case WAITING:
 		var shouldCancel = false
@@ -212,7 +213,7 @@ func transition(ctx context.Context, cli client.Client, node *gograph.DirectedNo
 		}
 		if shouldDispatch {
 			fmt.Printf("Dispatching %+v\n", node.Values["name"])
-			if dispatch(ctx, cli, node) {
+			if dispatch(ctx, cli, config, node) {
 				node.Values["state"] = RUNNING
 			} else {
 				node.Values["state"] = FAILED
@@ -239,12 +240,12 @@ func transition(ctx context.Context, cli client.Client, node *gograph.DirectedNo
 	}
 }
 
-func dispatch(ctx context.Context, cli client.Client, node *gograph.DirectedNode) bool {
+func dispatch(ctx context.Context, cli client.Client, config genesis.Pipeline, node *gograph.DirectedNode) bool {
 	// var c chan string = make(chan string)
 
 	// Update the below function to accept an argument for the node
 	// so we can correlate the running container with the step later
-	var didCreate, id = createNewContainer(ctx, cli, node)
+	var didCreate, id = createNewContainer(ctx, cli, config, node)
 	if didCreate {
 		fmt.Printf("Dispatched %+v step container with ID %+v\n", node.Values["name"], id[:12])
 		node.Values["container"] = id
@@ -254,9 +255,10 @@ func dispatch(ctx context.Context, cli client.Client, node *gograph.DirectedNode
 }
 
 // createNewContainer Creates a new container
-func createNewContainer(ctx context.Context, cli client.Client, node *gograph.DirectedNode) (bool, string) {
+func createNewContainer(ctx context.Context, cli client.Client, conf genesis.Pipeline, node *gograph.DirectedNode) (bool, string) {
 	var cmd = strings.Fields(node.Values["command"])
 	var config *container.Config
+
 	if len(cmd) != 0 {
 		config = &container.Config{Image: node.Values["image"], Cmd: cmd}
 	} else {
@@ -272,9 +274,13 @@ func createNewContainer(ctx context.Context, cli client.Client, node *gograph.Di
 	}
 
 	portBinding := nat.PortMap{containerPort: []nat.PortBinding{hostBinding}}
+
 	path, err := os.Getwd()
 	if err != nil {
 		log.Println(err)
+	}
+	if conf.Mount != "" {
+		path = conf.Mount
 	}
 
 	cont, err := cli.ContainerCreate(

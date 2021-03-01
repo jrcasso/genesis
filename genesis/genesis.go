@@ -27,6 +27,7 @@ import (
 // Pipeline represents one CI pipeline, which has many steps
 type Pipeline struct {
 	Name  string `yaml:"name"`
+	Mount string `yaml:"mount,omitempty"`
 	Steps []Step `yaml:"steps"`
 }
 
