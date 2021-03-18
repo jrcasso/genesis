@@ -12,16 +12,13 @@
 	},
 	"runArgs": [
 		"--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined",
-		"-v", "${env:APPDATA}/gnupg/pubring.kbx:/home/vscode/.gnupg/pubring.kbx",
-		"-v", "${env:APPDATA}/gnupg/trustdb.gpg:/home/vscode/.gnupg/trustdb.gpg",
-		"-v", "${env:APPDATA}/gnupg/S.gpg-agent.extra:/home/vscode/.gnupg-localhost/S.gpg-agent.extra:ro"
 	],
 
 	// To enter a devcontainer workspace, first open one of the folders in a devcontainer,
 	// then activate the workspace file (via a pop-up or action)
 	"mounts": [
 		"source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
-		"source=${env:HOME}/code/gograph,target=/workspaces/gograph,type=bind",
+		"source=${env:HOME}/Documents/code/personal/gograph,target=/workspaces/gograph,type=bind",
 	],
 
 	// Set *default* container specific settings.json values on container create.

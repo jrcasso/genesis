@@ -1,5 +1,5 @@
 name: maiden-voyage
-mount: /c/Users/Intrepid/code/genesis
+mount: /Users/jcasso/Documents/code/personal/genesis
 steps:
   - name: NodeA
     image: jrcasso/genesis:sleep

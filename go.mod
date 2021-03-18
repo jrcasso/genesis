@@ -1,6 +1,6 @@
 module github.com/jrcasso/genesis
 
-replace github.com/jrcasso/gograph => /workspaces/gograph/
+// replace github.com/jrcasso/gograph => /workspaces/gograph/
 
 go 1.15
 

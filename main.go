@@ -264,7 +264,7 @@ func dispatch(ctx context.Context, cli client.Client, conf genesis.Pipeline, nod
 			},
 		},
 		nil,
-		node.ID,
+		node.Values["name"],
 	)
 	check(err)
 

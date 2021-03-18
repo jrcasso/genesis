@@ -10,6 +10,8 @@ github.com/jrcasso/gograph v0.17.0 h1:jiZHF5VoL4AlBzLtqL8f6AQvBlbni39y6rM1qC9N1i
 github.com/jrcasso/gograph v0.17.0/go.mod h1:D3h5Dd4E3vDN47NwVVwrzu2qSrOg48jHpN+zjeYxaHE=
 github.com/jrcasso/gograph v0.18.0 h1:7XIUo+LFJmAuAYr8rrQ29fRVRK/3BcqABwG2CAc0CQA=
 github.com/jrcasso/gograph v0.18.0/go.mod h1:D3h5Dd4E3vDN47NwVVwrzu2qSrOg48jHpN+zjeYxaHE=
+github.com/jrcasso/gograph v0.20.0 h1:js8b6EObePKu81CfSP+PgeQBOHJ97+hzcwA+hdW/kmg=
+github.com/jrcasso/gograph v0.20.0/go.mod h1:D3h5Dd4E3vDN47NwVVwrzu2qSrOg48jHpN+zjeYxaHE=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
