@@ -139,7 +139,7 @@ func main() {
 		log.Fatal("Unable to create docker client")
 	}
 
-	var config = unmarshalConfigYaml(readFile("./fixtures/.genesis.yml"))
+	var config = unmarshalConfigYaml(readFile("./.genesis.yml"))
 
 	var graph = convertConfigToGraph(config)
 	var graphCopy = convertConfigToGraph(config)

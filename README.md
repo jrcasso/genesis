@@ -8,13 +8,51 @@
 
 Genesis is a lightweight, container-native continuous integration system written in Go. Leveraging the Docker engine, this program will execute configured pipelines locally, even supporting parallelism.
 
+## Usage
+
+### Example
+
+The `.genesis.yml` YAML configuration for Genesis follows this syntax:
+```yaml
+name: maiden-voyage
+mount: /Users/jcasso/Documents/code/personal/genesis
+steps:
+  - name: NodeA
+    image: jrcasso/genesis:sleep
+
+  - name: NodeB
+    image: jrcasso/genesis:sleep
+    depends_on: ["NodeA"]
+    command: /bin/touch /genesis/foobar
+
+  - name: NodeC
+    image: python:latest
+    command: pip install boto3
+    depends_on: ["NodeA", "NodeB"]
+```
+### Pipeline Specification
+| Field | Specification | Description |
+| -------------| ------------- | ------------- |
+|`name` | Required | A unique name for the current pipeline |
+|`steps` | Required | A list of pipeline steps |
+|`mount` | Optional |A path to a directory to bind as a volume in pipeline steps (*default*: current working directory) |
+
+### Step Specification
+| Field | Specification | Description |
+| -------------| ------------- | ------------- |
+|`name` | Required | A unique name for the step in this pipeline |
+|`image` | Required |A Docker image that the current step will run inside |
+|`command` | Optional | A command to run in the container (*default*: `CMD` command for the container) |
+|`depends_on` | Optional | A list of pipeline steps upon which the current step depends on. The step will be dispatched as soon as step dependencies have exited successfully. If step dependencies fail or are cancelled, the step will be skipped (*default*: no dependencies)|
+
+
 
 ## Design
 
 Genesis converts a `.genesis.yml` file into a directed, acyclic execution graph using graph theory primitives from github.com/jrcasso/gograph. This pipeline execution graph is then [topologically sorted](https://en.wikipedia.org/wiki/Topological_sorting) for handoff to the main lifecycle loop. This lifecycle loop of the pipeline is then managed by a [finite-state machine](https://en.wikipedia.org/wiki/Finite-state_machine) that both dispatches and inspects running containers.
 
 This project endeavors to implement the following:
- - a functional, *useful* CI pipeline that leverages deterministic finite-state machine management
+ - a functional, useful CI pipeline that leverages deterministic finite-state machine management
  - a demonstration of the functionalities it provides via CI configuration fixtures
  - a semantically versioned progression of package improvements
 
