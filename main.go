@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/jrcasso/genesis/genesis"
 	"github.com/jrcasso/gograph"
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
 
@@ -30,17 +30,22 @@ const (
 	FAILED    = "FAILED"
 )
 
+func init() {
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.DebugLevel)
+}
+
 func readFile(path string) []byte {
 	// Load YAML file
 	configBytes, err := ioutil.ReadFile(path)
 	check(err)
-	fmt.Print(string(configBytes))
+	log.Debug(string(configBytes))
 	return configBytes
 }
 
 func check(e error) {
 	if e != nil {
-		panic(e)
+		log.Fatal(e)
 	}
 }
 
@@ -111,13 +116,13 @@ func convertConfigToGraph(config genesis.Pipeline) gograph.DirectedGraph {
 			var childNode = gograph.FindNodesByValues(graph, map[string]string{"name": s.Name})
 			var parentNode = gograph.FindNodesByValues(graph, map[string]string{"name": dependency})
 			if childNode == nil {
-				panic(fmt.Sprintf("Node not found: '%+v'. Did you spell step names and dependencies correctly?", s.Name))
+				log.Fatalf("Node not found: '%+v'. Did you spell step names and dependencies correctly?", s.Name)
 			}
 			if parentNode == nil {
-				panic(fmt.Sprintf("Node not found: '%+v'. Did you spell step names and dependencies correctly?", dependency))
+				log.Fatalf("Node not found: '%+v'. Did you spell step names and dependencies correctly?", dependency)
 			}
 			if len(parentNode) > 1 || len(childNode) > 1 {
-				panic("Multiple nodes with the same name found!")
+				log.Fatalf("Multiple nodes with the same name found!")
 			}
 			graph, _, _ = gograph.CreateDirectedEdge(graph, parentNode[0], childNode[0])
 		}
@@ -131,14 +136,11 @@ func main() {
 	ctx := context.Background()
 	cli, err := client.NewEnvClient()
 	if err != nil {
-		fmt.Println("Unable to create docker client")
-		panic(err)
+		log.Fatal("Unable to create docker client")
 	}
 
 	var config = unmarshalConfigYaml(readFile("./fixtures/.genesis.yml"))
 
-	// TODO consolidate deep copy into TopologicalSort
-	// See "github.com/jinzhu/copier"
 	var graph = convertConfigToGraph(config)
 	var graphCopy = convertConfigToGraph(config)
 	var sortedWithEdges = []*gograph.DirectedNode{}
@@ -155,19 +157,19 @@ func main() {
 	for _, node := range sortedWithEdges {
 		sortedByName = append(sortedByName, node.Values["name"])
 	}
-	fmt.Printf("%+v\n", config)
-	fmt.Printf("%+v\n", graph)
-	fmt.Println(sortedByName)
+	log.Debugf("%+v\n", config)
+	log.Debugf("%+v\n", graph)
+	log.Debugln(sortedByName)
 
 	// TODO: Consolidate keepGoing and allNodesCompleted
 	var keepGoing = true
-	fmt.Printf("BEGIN\n")
+	log.Debug("BEGIN\n")
 	for keepGoing {
 		var allNodesCompleted = true
-		fmt.Printf("================================================\n")
+		log.Debug("================================================\n")
 		for _, node := range sortedWithEdges {
 			transition(ctx, *cli, config, node)
-			fmt.Printf("Step %+v has state %+v\n", node.Values["name"], node.Values["state"])
+			log.Debugf("Step %+v has state %+v\n", node.Values["name"], node.Values["state"])
 			if node.Values["state"] == SUCCEEDED || node.Values["state"] == FAILED || node.Values["state"] == CANCELLED {
 				allNodesCompleted = allNodesCompleted && true
 				// Move on to the next node
@@ -179,7 +181,7 @@ func main() {
 		time.Sleep(2 * time.Second)
 		keepGoing = !allNodesCompleted
 	}
-	fmt.Printf("END\n")
+	log.Debug("END\n")
 }
 
 // TODO transition is starting to get overloaded
@@ -191,6 +193,7 @@ func transition(ctx context.Context, cli client.Client, config genesis.Pipeline,
 		for _, parent := range node.Parents {
 			if parent.Values["state"] == FAILED || parent.Values["state"] == CANCELLED {
 				shouldCancel = true
+				break
 			}
 			if parent.Values["state"] != SUCCEEDED {
 				shouldDispatch = false
@@ -198,11 +201,12 @@ func transition(ctx context.Context, cli client.Client, config genesis.Pipeline,
 			}
 		}
 		if shouldCancel {
-			fmt.Printf("Cancelling %+v\n", node.Values["name"])
+			log.Debugf("Cancelling %+v\n", node.Values["name"])
 			node.Values["state"] = CANCELLED
+			defer genesis.RemoveContainer(ctx, cli, node.Values["container"])
 		}
 		if shouldDispatch {
-			fmt.Printf("Dispatching %+v\n", node.Values["name"])
+			log.Debugf("Dispatching %+v\n", node.Values["name"])
 			if dispatch(ctx, cli, config, node) {
 				node.Values["state"] = RUNNING
 			} else {
@@ -214,17 +218,20 @@ func transition(ctx context.Context, cli client.Client, config genesis.Pipeline,
 		check(err)
 
 		if container.State.Status == "exited" {
+			log.Debugf("Container %+v has exited with code %d", container.ID[:12], container.State.ExitCode)
 			if container.State.ExitCode == 0 {
 				node.Values["state"] = SUCCEEDED
 			} else {
 				node.Values["state"] = FAILED
 			}
+			genesis.RetreiveContainerLogs(cli, container.ID)
+			defer genesis.RemoveContainer(ctx, cli, container.ID)
 		}
 	case CANCELLED:
 	case SUCCEEDED:
 	case FAILED:
 	default:
-		panic("Invalid state provided!")
+		log.Fatal("Invalid state provided!")
 	}
 }
 
@@ -270,11 +277,11 @@ func dispatch(ctx context.Context, cli client.Client, conf genesis.Pipeline, nod
 
 	err = cli.ContainerStart(ctx, cont.ID, types.ContainerStartOptions{})
 	if err != nil {
-		fmt.Println(err)
+		log.Warn(err)
 		return false
 	}
 
-	fmt.Printf("Dispatched %+v step container with ID %+v\n", node.Values["name"], cont.ID[:12])
+	log.Infof("Dispatched %+v step container with ID %+v\n", node.Values["name"], cont.ID[:12])
 	node.Values["container"] = cont.ID
 	return true
 }

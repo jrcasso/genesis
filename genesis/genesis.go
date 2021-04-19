@@ -2,12 +2,15 @@ package genesis
 
 import (
 	"context"
-	"fmt"
+	"io"
+	"os"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	log "github.com/sirupsen/logrus"
 )
 
 // This is the pattern for a CI system:
@@ -48,7 +51,7 @@ func CreateNewContainer(ctx context.Context, cli client.Client, image string, c 
 	}
 	containerPort, err := nat.NewPort("tcp", "80")
 	if err != nil {
-		panic("Unable to get the port")
+		log.Fatal("Unable to get the port")
 	}
 
 	portBinding := nat.PortMap{containerPort: []nat.PortBinding{hostBinding}}
@@ -61,41 +64,53 @@ func CreateNewContainer(ctx context.Context, cli client.Client, image string, c 
 			PortBindings: portBinding,
 		}, nil, "")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	err = cli.ContainerStart(ctx, cont.ID, types.ContainerStartOptions{})
 	c <- cont.ID
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
-// DeleteContainer adsa
-func DeleteContainer(ctx context.Context, cli client.Client, id string) {
-	var info types.ContainerJSON
+// RemoveContainer removes containers after a step finishes
+func RemoveContainer(ctx context.Context, cli client.Client, id string) {
 	var removeOptions = types.ContainerRemoveOptions{
 		RemoveVolumes: true,
 		RemoveLinks:   false,
 		Force:         true,
 	}
 
-	info, err := cli.ContainerInspect(ctx, id)
-	fmt.Printf("%+v\n", info.ContainerJSONBase)
-
-	err = cli.ContainerStop(ctx, id, nil)
+	_, err := cli.ContainerInspect(ctx, id)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
+
+	log.Debugf("Removing container %+v\n", id[:12])
 
 	err = cli.ContainerRemove(ctx, id, removeOptions)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
 
-// ContainerList
-func ContainerList(ctx context.Context, cli client.Client, id string) {
+// RetreiveContainerLogs gets the logs from the specified container
+func RetreiveContainerLogs(cli client.Client, id string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
+	var logOptions = types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+	}
+
+	reader, err := cli.ContainerLogs(ctx, id, logOptions)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer reader.Close()
+
+	_, err = io.Copy(os.Stdout, reader)
+	if err != nil && err != io.EOF {
+		log.Fatal(err)
+	}
 }

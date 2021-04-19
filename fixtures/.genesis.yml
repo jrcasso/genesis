@@ -5,8 +5,8 @@ steps:
     image: jrcasso/genesis:sleep
 
   - name: NodeD
-    image: jrcasso/genesis:sleep
-    command: sleep 30
+    image: python:latest
+    command: pip install boto3
     depends_on: ["NodeC"]
 
   - name: NodeE
